@@ -4,7 +4,7 @@ This is the filterscript of Private Message System which i absolutely cannot tes
 Feel free to report anything if you found any bug!
 
 # Installation
-Head over the [releases](release) page of this repo, and then download the .zip.
+Head over the [release](/../../releases) page of this repo, and then download the .zip.
 Extract it to your filterscript folder and add this in your config.json:
 ```json
 {

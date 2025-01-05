@@ -1,0 +1,6 @@
+[submodule "omp-stdlib"]
+	path = src/libs/omp-stdlib
+	url = git@github.com:openmultiplayer/omp-stdlib.git
+[submodule "izcmd"]
+	path = src/libs/izcmd
+	url = git@github.com:YashasSamaga/I-ZCMD.git

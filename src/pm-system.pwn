@@ -29,25 +29,15 @@
 #include <sscanf2>
 #include <izcmd>
 
-// Macros (if not available)
-#if !defined IsNull
-    #define IsNull(%1) ((!(%1[0])) || (((%1[0]) == '\1') && (!(%1[1]))))
-#endif
-
 // Constants
 const
-    DEFAULT_PM_TIMEOUT = 300,  // 5 minute
     ERROR_COLOR   = 0xFF0000AA,    // Red
     SYNTAX_COLOR  = 0xC0C0C0AA,    // Grey
     SERVER_COLOR  = 0xFFFFFFAA,    // White
     PM_COLOR      = 0xFFDE21AA;    // Yellow
 
 static
-    PMSessions[MAX_PLAYERS],
-    PMTimeouts[MAX_PLAYERS];
-
-// Forwards
-forward OnPMTimeoutCheck();
+    PMSessions[MAX_PLAYERS];
 
 // Global Functions
 public OnFilterScriptInit()
@@ -57,8 +47,6 @@ public OnFilterScriptInit()
     print("| By: Yuuki X               |");
     print("+---------------------------+");
     print("| Status:                   |");
-
-    SetTimer(#OnPMTimeoutCheck, 1000, true);
     print("| SUCCESS: Script Inited!   |");
     print("+---------------------------+");
     return 1;
@@ -76,89 +64,27 @@ public OnFilterScriptExit()
     return 1;
 }
 
-public OnPMTimeoutCheck()
+public OnPlayerDisconnect(playerid, reason)
 {
-    for (new player = 0, maxplayer = GetMaxPlayers(); player < maxplayer; player ++)
+    new receiverid = PMSessions[playerid];
+
+    // Make sure to check if the receiver still in the playerid session
+    if (PMSessions[receiverid] == playerid)
     {
-        if (!IsPlayerConnected(player))
-        {
-            continue;
-        }
-
-        if (PMSessions[player] == INVALID_PLAYER_ID)
-        {
-            continue;
-        }
-
-        if (!IsPlayerConnected(PMSessions[player]))
-        {
-            print("LOG: PM Session Closed (Reason: Receiver Disconnected)");
-            printf("LOG: Sender: %d | Receiver: %d", player, PMSessions[player]);
-
-            ResetPMSession(player);
-            continue;
-        }
-
-        if (PMTimeouts[player] < 1)
-        {
-            print("LOG: PM Session Closed (Reason: Inactivity Timeout Reached)");
-            printf("LOG: Sender: %d | Receiver: %d", player, PMSessions[player]);
-
-            ResetPMSession(player);
-            continue;
-        }
-
-        PMTimeouts[player] --;
-    }
-    return 1;
-}
-
-// Main Function
-IsPlayerInPMSession(playerid)
-{
-    new receiver = PMSessions[playerid];
-    return (IsPlayerConnected(receiver) && PMSessions[receiver] == playerid);
-}
-
-CreatePMSession(playerid, receiverid, timeout = DEFAULT_PM_TIMEOUT)
-{
-    if (IsPlayerInPMSession(playerid) && IsPlayerInPMSession(receiverid))
-    {
-        return 0;
+        // after that we reset session.
+        PMSessions[receiverid] = INVALID_PLAYER_ID;
     }
 
-    print("LOG: PM Session Closed (Reason: Creating New Session)");
-    printf("LOG: Sender: %d | Receiver: %d", playerid, receiverid);
-    ResetPMSession(playerid);
-
-    print("LOG: Creating New PM Session...");
-    printf("LOG: Sender: %d | Receiver: %d", playerid, receiverid);
-    PMSessions[playerid] = receiverid;
-    PMSessions[receiverid] = playerid;
-
-    PMTimeouts[playerid] = timeout;
-    PMTimeouts[receiverid] = timeout;
-    return 1;
-}
-
-ResetPMSession(playerid)
-{
-    if (PMSessions[playerid] != INVALID_PLAYER_ID)
-    {
-        new receiver = PMSessions[playerid];
-        PMSessions[receiver] = INVALID_PLAYER_ID;
-        PMTimeouts[receiver] = 0;
-    }
-
+    // Reset the receiver session as well.
     PMSessions[playerid] = INVALID_PLAYER_ID;
-    PMTimeouts[playerid] = 0;
     return 1;
 }
 
 SendPMToPlayer(senderid, receiverid, const message[])
 {
-    // Create session if possible
-    CreatePMSession(senderid, receiverid);
+    // Create new sessions
+    PMSessions[senderid] = receiverid;
+    PMSessions[receiverid] = senderid;
 
     new
         playerName[MAX_PLAYER_NAME + 1],
@@ -169,16 +95,16 @@ SendPMToPlayer(senderid, receiverid, const message[])
 
     if (strlen(message) > 64)
     {
-        SendClientMessageEx(receiverid, PM_COLOR, "(( PM From %s: %64s", playerName, message);
+        SendClientMessageEx(receiverid, PM_COLOR, "(( PM from %s: %64s", playerName, message);
         SendClientMessageEx(receiverid, PM_COLOR, "...%s ))", message[64]);
 
-        SendClientMessageEx(senderid, PM_COLOR, "(( PM To %s: %64s ))", targetName, message);
+        SendClientMessageEx(senderid, PM_COLOR, "(( PM to %s: %64s ))", targetName, message);
         SendClientMessageEx(senderid, PM_COLOR, "...%s ))", message[64]);
     }
     else
     {
-        SendClientMessageEx(receiverid, PM_COLOR, "(( PM From %s: %s ))", playerName, message);
-        SendClientMessageEx(senderid, PM_COLOR, "(( PM To %s: %s ))", targetName, message);
+        SendClientMessageEx(receiverid, PM_COLOR, "(( PM from %s: %s ))", playerName, message);
+        SendClientMessageEx(senderid, PM_COLOR, "(( PM to %s: %s ))", targetName, message);
     }
     return 1;
 }
@@ -186,31 +112,37 @@ SendPMToPlayer(senderid, receiverid, const message[])
 // Commands
 CMD:pm(playerid, const params[])
 {
-    if (IsPlayerInPMSession(playerid))
+    // Provide 2 option for /pm system
+    new option, targetid, text[128 + 1];
+    if (sscanf(params, "rs[128]|s[128]", option, targetid, text))
     {
-        if (IsNull(params))
+        // If not in any sessions
+        if (!IsPlayerConnected(PMSessions[playerid]))
         {
-            SendClientMessage(playerid, SYNTAX_COLOR, "USAGE:{FFFFFF} /pm <text>");
-            return 1;
+            SendClientMessage(playerid, SYNTAX_COLOR, "USAGE:{FFFFFF} /pm <playerid/PartOfName> <text>");
         }
-
-        SendPMToPlayer(playerid, PMSessions[playerid], params);
+        else // but if any
+        {
+            SendClientMessage(playerid, SYNTAX_COLOR, "USAGE:{FFFFFF} /pm [playerid/PartOfName] <text>");
+        }
         return 1;
     }
 
-    new targetid, text[128 + 1];
-    if (sscanf(params, "rs[128]", targetid, text))
+    // If the player choose option 2
+    if (option == 2)
     {
-        SendClientMessage(playerid, SYNTAX_COLOR, "USAGE:{FFFFFF} /pm <playerid/PartOfName> <text>");
+        SendPMToPlayer(playerid, PMSessions[playerid], text);
         return 1;
     }
 
+    // But if player typed the targetid/name
     if (targetid == INVALID_PLAYER_ID)
     {
         SendClientMessage(playerid, ERROR_COLOR, "ERROR:{FFFFFF} Invalid player specified!");
         return 1;
     }
 
+    // Send it here
     SendPMToPlayer(playerid, targetid, text);
     return 1;
 }
